@@ -1,0 +1,621 @@
+<!--
+EmpowerHer Leadership Quest – Playable Prototype (single-file HTML/CSS/JS)
+Author: Asma Zarrouk & Norris Krueger (concept), code by ChatGPT
+
+How to use in CodePen:
+1) Copy everything in this file into the HTML panel of a new Pen.
+2) CodePen will parse <style> and <script> automatically.
+3) Press Run. Choose number of players (2–4), enter names, then Play.
+
+Game loop (prototype):
+- Click "Roll" to move along the board (28 tiles spanning 4 domains: Career, Community, Family, Personal Growth).
+- Land on tiles: Challenge or Empowerment triggers a card modal.
+- Challenge cards present a scenario with 3 options (A/B/C) affecting 4 stats: Leadership, Resilience, Collaboration, Ethics.
+- Empowerment cards grant buffs, tokens, or badges.
+- Earn Success Badges when stats cross thresholds; reflections get saved in the Portfolio.
+- Use the Portfolio tab to review history; game autosaves to localStorage.
+
+Notes:
+- This is an educational prototype to demonstrate mechanics & UX; customize cards, thresholds, and visuals as needed.
+- No external libs required. Everything is self-contained for easy classroom use.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EmpowerHer Leadership Quest – Playable Prototype</title>
+  <style>
+    :root{
+      --bg:#0f172a;          /* slate-900 */
+      --panel:#0b1229;       /* deep navy */
+      --card:#111827;        /* gray-900 */
+      --ink:#e5e7eb;         /* gray-200 */
+      --muted:#9ca3af;       /* gray-400 */
+      --accent:#a78bfa;      /* violet-300 */
+      --accent2:#22d3ee;     /* cyan-400 */
+      --good:#34d399;        /* emerald-400 */
+      --warn:#f59e0b;        /* amber-500 */
+      --bad:#ef4444;         /* red-500 */
+      --shadow: 0 10px 25px rgba(0,0,0,.35);
+      --r:18px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; background: radial-gradient(1200px 800px at 85% -10%, #1f2937 0%, var(--bg) 50%, #0b1022 100%);
+      color:var(--ink); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial;
+      letter-spacing:.2px;
+    }
+    .app{
+      display:grid; grid-template-columns: 330px 1fr 360px; gap:16px; padding:16px; min-height:100vh;
+    }
+    .panel{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)); backdrop-filter: blur(6px); border:1px solid rgba(255,255,255,.06); border-radius:24px; box-shadow: var(--shadow);}
+    .panel h2{margin:0 0 8px 0; font-size:18px; letter-spacing:.4px}
+    .panel .inner{padding:16px}
+
+    /* LEFT: Setup & Players */
+    .setup input, .setup select{width:100%; padding:10px 12px; background:#0b1229; color:var(--ink); border:1px solid rgba(255,255,255,.08); border-radius:12px}
+    .setup .row{display:grid; grid-template-columns: 1fr 1fr; gap:8px}
+    .btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 14px; border-radius:14px; border:1px solid rgba(255,255,255,.08); background:linear-gradient(180deg, #1f2937, #0f172a); color:var(--ink); cursor:pointer; transition:transform .05s ease, box-shadow .2s ease; box-shadow:0 2px 0 rgba(255,255,255,.05) inset}
+    .btn:hover{box-shadow:0 0 0 2px rgba(167,139,250,.25)}
+    .btn:active{transform: translateY(1px)}
+    .btn.primary{background: linear-gradient(180deg, #6d28d9, #5b21b6); border-color: rgba(167,139,250,.5)}
+    .btn.ghost{background:transparent}
+    .muted{color:var(--muted)}
+    .players{display:flex; flex-direction:column; gap:10px}
+    .player-card{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)); border:1px solid rgba(255,255,255,.06); padding:12px; border-radius:16px}
+    .badge{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,.08)}
+    .chip{display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:2px solid rgba(255,255,255,.7); box-shadow:0 0 0 2px rgba(0,0,0,.35) inset}
+
+    /* CENTER: Board */
+    .board{position:relative; height: calc(100vh - 32px); min-height:680px; border-radius:24px; overflow:hidden}
+    .board .bg{position:absolute; inset:0; background: radial-gradient(900px 600px at 20% 10%, rgba(167,139,250,.12), transparent 60%), radial-gradient(600px 400px at 80% 90%, rgba(34,211,238,.1), transparent 60%)}
+    .board .grid{position:absolute; inset:16px; border-radius:20px; padding:16px; display:grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: repeat(6, 1fr); gap:8px}
+    .tile{position:relative; border-radius:14px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; font-weight:600}
+    .tile.small{font-size:12px}
+    .tile .icon{font-size:18px; opacity:.9}
+    .t-career{background:linear-gradient(180deg, rgba(139,92,246,.25), rgba(30,27,75,.5))}
+    .t-community{background:linear-gradient(180deg, rgba(16,185,129,.25), rgba(6,78,59,.5))}
+    .t-family{background:linear-gradient(180deg, rgba(245,158,11,.25), rgba(120,53,15,.5))}
+    .t-growth{background:linear-gradient(180deg, rgba(59,130,246,.25), rgba(30,64,175,.5))}
+    .t-challenge{outline:2px dashed rgba(239,68,68,.6)}
+    .t-empower{outline:2px dashed rgba(34,197,94,.6)}
+    .summit{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:230px; height:230px; border-radius:50%; background: radial-gradient(circle at 30% 30%, rgba(167,139,250,.25), rgba(34,211,238,.15)); border:1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content:center; text-align:center; padding:16px; font-weight:700; box-shadow: var(--shadow)}
+    .token{position:absolute; width:18px; height:18px; border-radius:50%; border:2px solid rgba(255,255,255,.85); box-shadow:0 0 0 2px rgba(0,0,0,.35) inset}
+
+    /* RIGHT: Controls & Portfolio */
+    .right{display:flex; flex-direction:column; height:100%}
+    .tabs{display:flex; gap:6px; padding:8px}
+    .tab{flex:1; text-align:center; cursor:pointer; padding:10px; border-radius:12px; border:1px solid rgba(255,255,255,.06)}
+    .tab.active{background: linear-gradient(180deg, rgba(167,139,250,.2), rgba(167,139,250,.05)); border-color: rgba(167,139,250,.45)}
+    .controls, .portfolio{flex:1; overflow:auto}
+    .stat{display:grid; grid-template-columns: 110px 1fr 42px; gap:8px; align-items:center}
+    .track{height:10px; background:#0b1229; border:1px solid rgba(255,255,255,.08); border-radius:999px; overflow:hidden}
+    .bar{height:100%; background: linear-gradient(90deg, var(--accent2), var(--accent));}
+    .log{font-size:13px; color:var(--muted)}
+
+    /* Modal */
+    .modal{position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.6); padding:20px; z-index:10}
+    .modal.show{display:flex}
+    .modal .card{max-width:720px; width:100%; background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.08); border-radius:20px; box-shadow:var(--shadow)}
+    .modal .card .hd{padding:16px 18px; border-bottom:1px solid rgba(255,255,255,.06); display:flex; gap:12px; align-items:center}
+    .modal .card .bd{padding:16px 18px}
+    .opt{display:flex; gap:12px; margin:10px 0}
+    .opt button{flex:1}
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); font-size:12px}
+    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-weight:700}
+
+    @media (max-width:1200px){
+      .app{grid-template-columns: 1fr;}
+      .board{min-height:560px}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- LEFT: Setup & Players -->
+    <section class="panel">
+      <div class="inner setup">
+        <h2>Setup</h2>
+        <label class="muted">Number of players</label>
+        <select id="playerCount">
+          <option>2</option>
+          <option>3</option>
+          <option>4</option>
+        </select>
+        <div id="nameRows" style="margin-top:10px; display:grid; gap:8px"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" id="startBtn" aria-label="Start game">Play</button>
+          <button class="btn" id="loadBtn" aria-label="Load saved game">Load Save</button>
+        </div>
+        <hr style="border:0; border-top:1px solid rgba(255,255,255,.06); margin:14px 0">
+        <h2>Players</h2>
+        <div id="players" class="players"></div>
+      </div>
+    </section>
+
+    <!-- CENTER: Board -->
+    <section class="panel board" aria-label="Game board">
+      <div class="bg"></div>
+      <div class="grid" id="grid"></div>
+      <div class="summit">
+        <div>
+          <div style="font-size:14px; letter-spacing:1px; text-transform:uppercase; color:var(--muted)">Center</div>
+          <div style="font-size:22px; margin-top:4px">Empowerment Summit</div>
+          <div class="muted" style="font-size:12px">Grow stats, earn badges, reflect, and collaborate.</div>
+        </div>
+      </div>
+      <div id="tokens"></div>
+    </section>
+
+    <!-- RIGHT: Controls & Portfolio -->
+    <section class="panel right">
+      <div class="tabs">
+        <div class="tab active" data-tab="controls">Controls</div>
+        <div class="tab" data-tab="portfolio">Portfolio</div>
+      </div>
+      <div class="inner controls" id="controlsTab">
+        <h2>Turn</h2>
+        <div id="turnInfo" class="muted">Start a new game to begin.</div>
+        <div style="display:flex; gap:8px; margin-top:10px">
+          <button class="btn primary" id="rollBtn" disabled><span class="kbd">R</span> Roll</button>
+          <button class="btn" id="endTurnBtn" disabled>End Turn</button>
+          <button class="btn ghost" id="saveBtn" disabled>Save</button>
+        </div>
+        <div style="margin-top:16px">
+          <div class="stat"><div>Leadership</div><div class="track"><div class="bar" id="bar-leadership" style="width:0%"></div></div><div id="val-leadership">0</div></div>
+          <div class="stat"><div>Resilience</div><div class="track"><div class="bar" id="bar-resilience" style="width:0%"></div></div><div id="val-resilience">0</div></div>
+          <div class="stat"><div>Collaboration</div><div class="track"><div class="bar" id="bar-collaboration" style="width:0%"></div></div><div id="val-collaboration">0</div></div>
+          <div class="stat"><div>Ethics</div><div class="track"><div class="bar" id="bar-ethics" style="width:0%"></div></div><div id="val-ethics">0</div></div>
+        </div>
+        <div style="margin-top:16px">
+          <div class="badge" id="badges">No badges yet</div>
+        </div>
+        <div style="margin-top:16px">
+          <h2>Log</h2>
+          <div id="log" class="log"></div>
+        </div>
+      </div>
+      <div class="inner portfolio" id="portfolioTab" style="display:none">
+        <h2>Success Portfolio</h2>
+        <div id="portfolioList" class="log"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="card">
+      <div class="hd">
+        <div class="pill" id="modalDomain">Domain</div>
+        <div style="font-weight:800" id="modalTitle">Card</div>
+        <div style="margin-left:auto" class="muted" id="modalType">Type</div>
+      </div>
+      <div class="bd" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+  // ---------- Data ----------
+  const COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b"]; // player token accents
+  const DOMAINS = ["Career","Community","Family","Personal Growth"];
+
+  const challengeCards = [
+    {id:"C1", domain:"Career", title:"Pitch With Purpose", text:"Your team has a 3-minute pitch. A senior VC hints that 'tech bros close better'. What do you do?",
+      options:[
+        {k:"A", text:"Lead the pitch, split speaking roles, cite evidence on diverse teams.", eff:{leadership:+2, collaboration:+2, ethics:+1}, reflect:"How did sharing the mic change the outcome?"},
+        {k:"B", text:"Let the most confident teammate do the full pitch.", eff:{leadership:+0, collaboration:-1, ethics:-1}, reflect:"When does confidence outweigh inclusion?"},
+        {k:"C", text:"Call out the bias, request a different judge.", eff:{leadership:+1, resilience:+1, ethics:+2}, reflect:"What were the risks of challenging bias?"}
+      ]},
+    {id:"C2", domain:"Community", title:"Stakeholder Map",
+      text:"You’re launching a community hub. Time is short. Where do you start?",
+      options:[
+        {k:"A", text:"Co-create with local leaders in a quick roundtable.", eff:{collaboration:+2, leadership:+1}, reflect:"Who was missing at the table?"},
+        {k:"B", text:"Design internally; community feedback after pilot.", eff:{leadership:+1, collaboration:-1}, reflect:"When is speed worth the trade-off?"},
+        {k:"C", text:"Survey widely first; delay launch.", eff:{resilience:+1, ethics:+1}, reflect:"How did patience serve legitimacy?"}
+      ]},
+    {id:"C3", domain:"Family", title:"Care & Career",
+      text:"A team retreat overlaps with a family duty. What's your move?",
+      options:[
+        {k:"A", text:"Negotiate virtual participation and delegate facilitation.", eff:{leadership:+1, collaboration:+1, resilience:+1}, reflect:"What made delegation effective?"},
+        {k:"B", text:"Skip the retreat; send notes.", eff:{resilience:+1}, reflect:"Where did you mitigate loss?"},
+        {k:"C", text:"Attend retreat; arrange backup care (stipend).",
+          eff:{leadership:+1, ethics:+1}, reflect:"How did fairness shape your choice?"}
+      ]},
+    {id:"C4", domain:"Personal Growth", title:"Mentor Matrix",
+      text:"You can access one mentor this month.",
+      options:[
+        {k:"A", text:"Pick a domain expert to level up hard skills.", eff:{leadership:+1}, reflect:"What skill will move the needle?"},
+        {k:"B", text:"Pick a role-model leader to shadow.", eff:{leadership:+2, ethics:+1}, reflect:"What behaviors will you emulate?"},
+        {k:"C", text:"Form a peer circle for accountability.", eff:{collaboration:+2}, reflect:"What peer norms matter most?"}
+      ]},
+    {id:"C5", domain:"Career", title:"Inclusive Hiring",
+      text:"You’re hiring fast. A shortlist lacks diversity.",
+      options:[
+        {k:"A", text:"Broaden outreach; delay decision 1 week.", eff:{ethics:+2, leadership:+1}, reflect:"How does fairness affect performance?"},
+        {k:"B", text:"Proceed; add bias training later.", eff:{leadership:+1, ethics:-1}, reflect:"What signals do early hires send?"},
+        {k:"C", text:"Bring in external screener for bias check.", eff:{ethics:+2, collaboration:+1}, reflect:"When do third parties help?"}
+      ]},
+    {id:"C6", domain:"Community", title:"Partnership Dilemma",
+      text:"A sponsor offers funds but wants exclusivity blocking local SMEs.",
+      options:[
+        {k:"A", text:"Negotiate partial exclusivity, protect SMEs.", eff:{leadership:+1, ethics:+2}, reflect:"Where's your red line?"},
+        {k:"B", text:"Accept now, revisit later.", eff:{resilience:+1, ethics:-2}, reflect:"What are the long-term risks?"},
+        {k:"C", text:"Decline; crowdsource smaller sponsors.", eff:{leadership:+1, collaboration:+1, resilience:+1}, reflect:"What alliances did you need?"}
+      ]},
+    {id:"C7", domain:"Family", title:"Wellbeing Budget",
+      text:"Team burnout is rising.",
+      options:[
+        {k:"A", text:"Introduce flexible hours and mental-health stipend.", eff:{ethics:+2, leadership:+1}, reflect:"What metrics show impact?"},
+        {k:"B", text:"Push through the sprint; reward later.", eff:{resilience:+1, ethics:-1}, reflect:"What costs are hidden?"},
+        {k:"C", text:"Co-design rest rules with team.", eff:{collaboration:+2}, reflect:"Which norms stuck?"}
+      ]},
+    {id:"C8", domain:"Personal Growth", title:"Learning Sprint",
+      text:"You have 10 hours for self-development.",
+      options:[
+        {k:"A", text:"Micro-courses + journaling.", eff:{resilience:+1, leadership:+1}, reflect:"What insight will you test?"},
+        {k:"B", text:"Shadow a cross-functional team.", eff:{collaboration:+2}, reflect:"What did you learn about others' constraints?"},
+        {k:"C", text:"Prototype a new service solo.", eff:{leadership:+1}, reflect:"What did you build?"}
+      ]}
+  ];
+
+  const empowermentCards = [
+    {id:"E1", title:"Mentor Boost", text:"Gain insight from a seasoned mentor.", apply:(p)=>{p.stats.leadership+=2; return "+2 Leadership";}},
+    {id:"E2", title:"Ally Network", text:"Peers rally to your vision.", apply:(p)=>{p.stats.collaboration+=2; return "+2 Collaboration";}},
+    {id:"E3", title:"Wellness Reset", text:"You invest in wellbeing.", apply:(p)=>{p.stats.resilience+=2; return "+2 Resilience";}},
+    {id:"E4", title:"Ethical North Star", text:"Values guide a hard call.", apply:(p)=>{p.stats.ethics+=2; return "+2 Ethics";}},
+    {id:"E5", title:"Badge: Bias Breaker", text:"You challenge a stereotype with grace.", apply:(p)=>{addBadge(p, "Bias Breaker"); return "Badge earned: Bias Breaker";}},
+    {id:"E6", title:"Reroll Token", text:"Keep a token to reroll once.", apply:(p)=>{p.tokens=(p.tokens||0)+1; return "Gained 1 Reroll Token";}}
+  ];
+
+  // ---------- Game State ----------
+  const state = {
+    started:false,
+    tiles:[], // 28 tiles around a 7x6 grid perimeter path
+    players:[],
+    cur:0,
+    deckC:shuffle([...challengeCards]),
+    deckE:shuffle([...empowermentCards]),
+    log:[],
+  };
+
+  function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]];} return a }
+
+  function pushLog(msg){ state.log.unshift({t:new Date().toLocaleTimeString(), msg}); renderLog(); }
+
+  // ---------- Board Generation ----------
+  function makePerimeterTiles(){
+    // Create indices covering perimeter cells of 7x6 grid (42 total). We'll select 28 usable path cells for nicer spacing.
+    const cols=7, rows=6; const cells=[];
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const edge = (r===0||r===rows-1||c===0||c===cols-1);
+        if(edge) cells.push({r,c});
+      }
+    }
+    // Choose every ~1.3th to get ~28 cells in an order around the perimeter
+    const order=[]; // traverse clockwise starting top-left corner
+    for(let c=0;c<cols;c++) order.push({r:0,c});
+    for(let r=1;r<rows;r++) order.push({r, c:cols-1});
+    for(let c=cols-2;c>=0;c--) order.push({r:rows-1,c});
+    for(let r=rows-2;r>0;r--) order.push({r, c:0});
+    // Downsample to 28 evenly
+    const step = order.length/28; let idx=0; const path=[];
+    for(let i=0;i<28;i++){ path.push(order[Math.round(idx)%order.length]); idx+=step; }
+
+    // Assign domains in blocks of 7
+    const tiles = path.map((pos,i)=>{
+      const block = Math.floor(i/7); const domain = DOMAINS[block];
+      const kind = (i%5===0) ? 'challenge' : (i%7===3? 'empower' : 'normal');
+      return {i, pos, domain, kind};
+    });
+    state.tiles = tiles;
+  }
+
+  // ---------- Rendering ----------
+  function renderGrid(){
+    const grid = document.getElementById('grid');
+    grid.innerHTML='';
+    // build empty 7x6 grid
+    for(let r=0;r<6;r++){
+      for(let c=0;c<7;c++){
+        const tile = document.createElement('div');
+        tile.className='tile small';
+        tile.dataset.r=r; tile.dataset.c=c;
+        grid.appendChild(tile);
+      }
+    }
+    // decorate path tiles
+    state.tiles.forEach(t=>{
+      const i = (t.pos.r*7)+t.pos.c; const el = grid.children[i];
+      el.classList.add('t-'+ domainClass(t.domain));
+      if(t.kind==='challenge') el.classList.add('t-challenge');
+      if(t.kind==='empower') el.classList.add('t-empower');
+      el.innerHTML = `<span class="icon">${t.kind==='challenge'?'⚡':' '}${t.kind==='empower'?'✨':''}</span>`;
+    });
+  }
+
+  function domainClass(d){
+    return d==="Career"?"career": d==="Community"?"community": d==="Family"?"family":"growth";
+  }
+
+  function renderTokens(){
+    const container = document.getElementById('tokens');
+    container.innerHTML='';
+    state.players.forEach((p,pi)=>{
+      const t = state.tiles[p.pos];
+      const grid = document.getElementById('grid');
+      const idx = (t.pos.r*7)+t.pos.c; const cell = grid.children[idx];
+      const rect = cell.getBoundingClientRect();
+      const host = grid.getBoundingClientRect();
+      const token = document.createElement('div');
+      token.className='token';
+      token.style.left = (rect.left - host.left + 6 + (pi*20)) + 'px';
+      token.style.top  = (rect.top  - host.top  + 6 + (pi*18)) + 'px';
+      token.style.background = COLORS[pi%COLORS.length];
+      token.title = p.name;
+      container.appendChild(token);
+    });
+  }
+
+  function renderPlayers(){
+    const wrap = document.getElementById('players');
+    wrap.innerHTML='';
+    state.players.forEach((p, i)=>{
+      const card = document.createElement('div');
+      card.className='player-card';
+      card.innerHTML = `
+        <div style="display:flex; align-items:center; gap:10px; font-weight:700">
+          <span class="chip" style="background:${COLORS[i%COLORS.length]}"></span>
+          <div>${p.name}</div>
+          <div class="muted" style="margin-left:auto">Tile ${p.pos+1}</div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; margin-top:10px">
+          ${['leadership','resilience','collaboration','ethics'].map(k=>`<div class="badge">${k[0].toUpperCase()+k.slice(1)}: <b style="margin-left:6px">${p.stats[k]}</b></div>`).join('')}
+        </div>
+        <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap" id="badges-${i}">
+          ${(p.badges&&p.badges.length)? p.badges.map(b=>`<span class="badge">🏅 ${b}</span>`).join('') : '<span class="muted">No badges</span>'}
+        </div>
+      `;
+      wrap.appendChild(card);
+    });
+  }
+
+  function renderTurnPanel(){
+    const cur = state.players[state.cur];
+    const ti = document.getElementById('turnInfo');
+    if(!cur){ ti.textContent = 'Start a new game to begin.'; return }
+    ti.innerHTML = `<b>${cur.name}</b>'s turn • Position ${cur.pos+1} • Tokens: ${cur.tokens||0}`;
+    ['leadership','resilience','collaboration','ethics'].forEach(k=>{
+      const v = cur.stats[k];
+      document.getElementById('val-'+k).textContent = v;
+      document.getElementById('bar-'+k).style.width = Math.min(100, v*5)+"%"; // 20 ~= full
+    });
+    const badges = document.getElementById('badges');
+    const list = (cur.badges||[]);
+    badges.innerHTML = list.length? list.map(b=>`<span class="badge">🏅 ${b}</span>`).join(' ') : 'No badges yet';
+  }
+
+  function renderLog(){
+    const el = document.getElementById('log');
+    el.innerHTML = state.log.slice(0,12).map(x=>`<div>[${x.t}] ${x.msg}</div>`).join('');
+  }
+
+  function renderPortfolio(){
+    const cur = state.players[state.cur]; if(!cur) return;
+    const el = document.getElementById('portfolioList');
+    const rows = (cur.portfolio||[]).slice().reverse().map(r=>`
+      <div style="padding:10px; border:1px solid rgba(255,255,255,.06); border-radius:12px; margin:8px 0">
+        <div style="font-weight:700">${r.title || 'Entry'}</div>
+        <div class="muted" style="font-size:12px">${new Date(r.t).toLocaleString()}</div>
+        <div style="margin-top:6px">${r.body}</div>
+      </div>
+    `).join('');
+    el.innerHTML = rows || '<span class="muted">Play to fill your Success Portfolio.</span>';
+  }
+
+  // ---------- Setup UI ----------
+  const playerCount = document.getElementById('playerCount');
+  const nameRows = document.getElementById('nameRows');
+  function rebuildNameInputs(){
+    nameRows.innerHTML='';
+    const n = parseInt(playerCount.value,10);
+    for(let i=0;i<n;i++){
+      const row = document.createElement('div');
+      row.className='row';
+      row.innerHTML = `
+        <input placeholder="Player ${i+1} name" id="pname-${i}" />
+        <input placeholder="Token color (hex or name)" id="pcolor-${i}" value="${COLORS[i%COLORS.length]}" />
+      `;
+      nameRows.appendChild(row);
+    }
+  }
+  playerCount.addEventListener('change', rebuildNameInputs);
+  rebuildNameInputs();
+
+  document.getElementById('startBtn').addEventListener('click', ()=>{
+    const n = parseInt(playerCount.value,10);
+    state.players=[];
+    for(let i=0;i<n;i++){
+      const name = document.getElementById('pname-'+i).value.trim() || `Player ${i+1}`;
+      const color = document.getElementById('pcolor-'+i).value.trim() || COLORS[i%COLORS.length];
+      COLORS[i%COLORS.length] = color; // update default palette
+      state.players.push({name, color, pos:0, stats:{leadership:0,resilience:0,collaboration:0,ethics:0}, badges:[], tokens:0, portfolio:[]});
+    }
+    state.cur=0; state.started=true; state.log=[];
+    state.deckC = shuffle([...challengeCards]);
+    state.deckE = shuffle([...empowermentCards]);
+    makePerimeterTiles(); renderGrid(); renderPlayers();
+    setTimeout(renderTokens, 50);
+    renderTurnPanel(); renderPortfolio();
+    enableControls(true);
+    pushLog('New game started.');
+  });
+
+  document.getElementById('loadBtn').addEventListener('click', ()=>{
+    const raw = localStorage.getItem('empowerHerSave');
+    if(!raw){ alert('No save found.'); return; }
+    const saved = JSON.parse(raw);
+    Object.assign(state, saved);
+    makePerimeterTiles(); renderGrid(); renderPlayers();
+    setTimeout(renderTokens, 50);
+    renderTurnPanel(); renderPortfolio(); renderLog();
+    enableControls(true);
+    pushLog('Game loaded.');
+  });
+
+  function enableControls(on){
+    document.getElementById('rollBtn').disabled=!on;
+    document.getElementById('endTurnBtn').disabled=!on;
+    document.getElementById('saveBtn').disabled=!on;
+  }
+
+  // ---------- Turns ----------
+  document.getElementById('rollBtn').addEventListener('click', onRoll);
+  document.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase()==='r' && !document.getElementById('rollBtn').disabled) onRoll(); });
+
+  function onRoll(){
+    const p = state.players[state.cur];
+    let roll = Math.floor(Math.random()*6)+1;
+    if(p.tokens>0 && confirm(`Rolled ${roll}. Use a reroll token? (You have ${p.tokens})`)){
+      p.tokens--; roll = Math.floor(Math.random()*6)+1; pushLog(`${p.name} used a token → Rolled ${roll}.`);
+    } else {
+      pushLog(`${p.name} rolled ${roll}.`);
+    }
+    p.pos = (p.pos + roll) % state.tiles.length;
+    renderPlayers(); renderTurnPanel(); setTimeout(renderTokens, 30);
+
+    const tile = state.tiles[p.pos];
+    if(tile.kind==='challenge')
+      presentChallenge(tile);
+    else if(tile.kind==='empower')
+      presentEmpower(tile);
+    else
+      pushLog(`${p.name} landed on a ${tile.domain} tile.`);
+  }
+
+  document.getElementById('endTurnBtn').addEventListener('click', ()=>{
+    state.cur = (state.cur+1) % state.players.length;
+    renderTurnPanel(); renderPortfolio();
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', ()=>{
+    localStorage.setItem('empowerHerSave', JSON.stringify(state));
+    pushLog('Game saved.');
+  });
+
+  // ---------- Cards ----------
+  function presentChallenge(tile){
+    const card = state.deckC.shift() || shuffle([...challengeCards]).shift();
+    state.deckC.push(card);
+    const body = document.getElementById('modalBody');
+    body.innerHTML = `
+      <div class="muted" style="margin-bottom:6px">${card.id} • ${card.domain}</div>
+      <div style="font-size:18px; font-weight:700; margin-bottom:8px">${card.title}</div>
+      <div style="margin-bottom:12px">${card.text}</div>
+      ${card.options.map((o,i)=>`
+        <div class="opt">
+          <button class="btn" data-choice="${i}"><span class="kbd">${o.k}</span> ${o.text}</button>
+        </div>
+      `).join('')}
+      <div class="muted" style="font-size:12px">Pick an option to continue.</div>
+    `;
+    showModal(card.domain, 'Challenge', 'Challenge Card');
+
+    [...body.querySelectorAll('button[data-choice]')].forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const idx = parseInt(btn.dataset.choice,10);
+        applyChallenge(card, idx);
+        hideModal();
+      });
+    });
+  }
+
+  function presentEmpower(tile){
+    const card = state.deckE.shift() || shuffle([...empowermentCards]).shift();
+    state.deckE.push(card);
+    const p = state.players[state.cur];
+    const effect = card.apply(p);
+    pushLog(`${p.name} drew Empowerment: ${card.title} (${effect}).`);
+    renderPlayers(); renderTurnPanel(); setTimeout(renderTokens, 30);
+
+    // Reflection entry
+    addPortfolio(p, {title:`Empowerment: ${card.title}`, body:`${card.text} — Effect: ${effect}`});
+
+    // Badge thresholds check
+    checkThresholds(p);
+
+    // Toast-like modal
+    const body = document.getElementById('modalBody');
+    body.innerHTML = `<div style="font-size:18px; font-weight:800; margin-bottom:8px">${card.title}</div><div>${card.text}</div><div class="pill" style="margin-top:10px">${effect}</div>`;
+    showModal('Any', 'Empower', 'Empowerment');
+    setTimeout(hideModal, 1400);
+  }
+
+  function applyChallenge(card, idx){
+    const p = state.players[state.cur];
+    const opt = card.options[idx];
+    const eff = opt.eff || {};
+    for(const k of ['leadership','resilience','collaboration','ethics']){
+      p.stats[k] += eff[k]||0;
+    }
+    renderPlayers(); renderTurnPanel();
+
+    const delta = Object.entries(eff).filter(([,v])=>v).map(([k,v])=>`${v>0?'+':''}${v} ${k}`).join(', ');
+    pushLog(`${p.name} chose ${opt.k} on ${card.id}: ${delta||'no change'}.`);
+
+    // Reflection prompt
+    addPortfolio(p, {title:`Reflect: ${card.title}`, body: opt.reflect});
+    renderPortfolio();
+
+    // Badges
+    checkThresholds(p);
+  }
+
+  function addPortfolio(p, entry){
+    p.portfolio.push({t:Date.now(), ...entry});
+  }
+
+  function addBadge(p, label){
+    if(!(p.badges||[]).includes(label)){
+      p.badges.push(label); renderPlayers(); renderTurnPanel();
+    }
+  }
+
+  function checkThresholds(p){
+    if(p.stats.leadership>=6) addBadge(p, 'Leader Rising');
+    if(p.stats.collaboration>=6) addBadge(p, 'Team Catalyst');
+    if(p.stats.resilience>=6) addBadge(p, 'Grit & Grace');
+    if(p.stats.ethics>=6) addBadge(p, 'Principled Pathfinder');
+  }
+
+  // ---------- Modal helpers ----------
+  function showModal(domain, type, title){
+    document.getElementById('modalDomain').textContent = domain;
+    document.getElementById('modalType').textContent = type;
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modal').classList.add('show');
+  }
+  function hideModal(){ document.getElementById('modal').classList.remove('show'); }
+  document.getElementById('modal').addEventListener('click', (e)=>{ if(e.target.id==='modal') hideModal(); });
+
+  // ---------- Tabs ----------
+  document.querySelectorAll('.tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      const view = tab.dataset.tab;
+      document.getElementById('controlsTab').style.display = (view==='controls')? 'block':'none';
+      document.getElementById('portfolioTab').style.display = (view==='portfolio')? 'block':'none';
+      renderPortfolio();
+    });
+  });
+
+  // ---------- Init ----------
+  makePerimeterTiles();
+  renderGrid();
+
+  </script>
+</body>
+</html>
